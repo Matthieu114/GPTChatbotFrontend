@@ -3,17 +3,16 @@ import { Input } from '../shadcn/ui/input';
 import { Button } from '../shadcn/ui/button';
 import { ButtonLoading } from './ButtonLoading';
 import { SkeletonLoader } from './SkeletonLoader';
-import useLocalStorage from '../hooks/useLocalStorage';
 
 interface Message {
-  id: string;
+  id: string | null;
   text: string;
   sender: string;
   timestamp: string;
 }
 
 const Chatbot: React.FC = () => {
-  const [messages, setMessages] = useLocalStorage('chatMessages', []);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>('');
   const [loading, setLoading] = useState<boolean>(false);
 
@@ -21,24 +20,19 @@ const Chatbot: React.FC = () => {
 
   useEffect(() => {
     loadMessageHistory();
-  });
+  }, []);
 
-  useEffect(() => {
-    // Scroll to the bottom when new messages are added
-    if (messageContainerRef.current) {
-      messageContainerRef.current.scrollTop = messageContainerRef.current.scrollHeight;
+  const loadMessageHistory = async () => {
+    try {
+      const response = await fetch('http://localhost:4000/api/chat-messages');
+      if (!response.ok) {
+        throw new Error('Network response was not ok');
+      }
+      const data = await response.json();
+      setMessages(data);
+    } catch (error) {
+      console.error('Error:', error);
     }
-  }, [messages]);
-
-  const loadMessageHistory = () => {
-    if (Array.isArray(messages) && messages.length > 0) {
-      setMessages(messages);
-    }
-  };
-
-  const generateUniqueId = () => {
-    // Replace this with your preferred unique ID generation logic
-    return `message_${Date.now()}_${Math.random().toString(36).substring(2, 15)}`;
   };
 
   const handleInput = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,12 +43,13 @@ const Chatbot: React.FC = () => {
     event.preventDefault();
     if (!input.trim()) return;
     const newMessage: Message = {
-      id: generateUniqueId(),
+      id: null,
       text: input,
-      sender: 'You', // Assume the sender is the user (can be modified as needed)
-      timestamp: new Date().toLocaleString() // Get the current timestamp (can be modified as needed)
+      sender: 'You',
+      timestamp: 'Now'
     };
     await setMessages([...messages, newMessage]);
+    setInput('');
     setLoading(true);
     try {
       await sendPromptToServer(newMessage);
@@ -62,11 +57,10 @@ const Chatbot: React.FC = () => {
       console.error('Error sending prompt to server:', error);
     }
     setLoading(false); // Set loading to false after API response is received
-    setInput('');
   };
 
   const sendPromptToServer = async (newMessage: Message) => {
-    const dataToSend = { prompt: newMessage.text };
+    const dataToSend = { message: newMessage };
     try {
       const response = await fetch('http://localhost:4000/api/process-prompt', {
         method: 'POST',
@@ -77,15 +71,8 @@ const Chatbot: React.FC = () => {
       });
 
       if (response.ok) {
-        const { result } = await response.json();
-
-        const gptResponse: Message = {
-          id: generateUniqueId(),
-          text: result,
-          sender: 'Chatgpt', // Assume the sender is the user (can be modified as needed)
-          timestamp: new Date().toLocaleString() // Get the current timestamp (can be modified as needed)
-        };
-        setMessages((prevMessages: Array<Message>) => [...prevMessages, gptResponse]);
+        const data = await response.json();
+        setMessages(data);
       } else {
         console.error('Server returned an error:', response.status);
       }
@@ -95,18 +82,14 @@ const Chatbot: React.FC = () => {
   };
 
   const renderMessages = () => {
-    return messages.map((message: Message, index: number) =>
-      loading && messages.length === index + 1 ? (
-        <SkeletonLoader />
-      ) : (
-        <div key={message.id} className='mb-4 p-2 rounded-md bg-gray-100 text-gray-800'>
-          <div className='text-gray-600 text-sm mb-1'>
-            <span className='font-bold'>{message.sender}</span> at {message.timestamp}
-          </div>
-          {message.text}
+    return messages.map((message: Message) => (
+      <div key={message.id} className='mb-4 p-2 rounded-md bg-gray-100 text-gray-800'>
+        <div className='text-gray-600 text-sm mb-1'>
+          <span className='font-bold'>{message.sender}</span> at {message.timestamp}
         </div>
-      )
-    );
+        {message.text}
+      </div>
+    ));
   };
 
   return (
